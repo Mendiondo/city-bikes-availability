@@ -1,0 +1,20 @@
+Barcelona ES
+Seattle, WA US
+Madrid ES
+Portland, OR US
+Valencia ES
+Berlin DE
+Bilbao ES
+Köln DE
+Paris FR
+München DE
+London GB
+Lisbon PT
+New York, NY US
+Toronto, ON CA
+Chicago, IL US
+Montréal, QC CA
+Los Angeles, CA US
+京都府 (Kyoto) JP
+San Francisco, CA US
+Göteborg SE
