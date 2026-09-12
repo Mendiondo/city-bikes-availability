@@ -18,4 +18,79 @@
     ratelimit-limit: total requests the API can handle
     ratelimit-remaining: remaining requests avilable before exceeded the limmit
     ratelimit-reset: remaining seconds to reset the remaining requests to the total limit
-    
+
+## Tools
+Used copilot with models set to Auto
+
+## Method
+Used prompts and refined the design when necessary
+
+## AI failures
+- AI create poolInterval parameters that could not properly reach city API limits, so I changed to use the response headers data instead
+  ```
+  pollIntervalSeconds: positiveInt(env, 'POLL_INTERVAL_SECONDS', 300),
+  pollJitterSeconds: positiveInt(env, 'POLL_JITTER_SECONDS', 1),
+  pollSpacingMs: positiveInt(env, 'POLL_SPACING_MS', 250),
+  ```
+- When creating the record/replay/compare services AI created separate call and configs(intervalMs, jitterMs spacingMs - see bellow) to handle city API limits, so I changed to use the same calls as in the availability service as the same response headers limits
+  ```
+    const record = async (url: string) => {
+    const fetchedAt = now();
+    let response: Response;
+    try {
+      response = await fetcher.fetch(url, {
+        headers: { accept: 'application/json' },
+      });
+    } catch (error) {
+      trace.entries.push({
+        at: new Date(fetchedAt).toISOString(),
+        elapsedMs: fetchedAt - startedEpochMs,
+        method: 'GET',
+        url,
+        status: 0,
+        headers: {},
+        body: { error: error instanceof Error ? error.message : String(error) },
+      });
+      return;
+    }
+    const text = await response.text();
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      body = text;
+    }
+    trace.entries.push({
+      at: new Date(fetchedAt).toISOString(),
+      elapsedMs: fetchedAt - startedEpochMs,
+      method: 'GET',
+      url,
+      status: response.status,
+      headers: Object.fromEntries(response.headers.entries()),
+      body,
+    });
+  };
+  ```
+
+  ```
+  export function replayTrace(options: {
+    trace: AvailabilityTrace;
+    policy: 'adaptive' | 'fixed';
+    baseUrl: string;
+    intervalMs: number;
+    jitterMs: number;
+    spacingMs: number;
+    maxStalenessMs: number;
+    requestBudget: number;
+    random?: () => number;
+  }): ReplayResult {
+  ```
+
+## Something you wrote yourself
+  - Default city CRUD and service to load them from a txt file
+
+## Something you rejected
+  - The configs created to handle API limits, as described above
+
+## Your least-trusted code.
+  - The trace.ts service got big and should be refactored to improve understanding and maintenance
