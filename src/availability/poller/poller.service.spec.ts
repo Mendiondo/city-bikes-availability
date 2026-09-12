@@ -1,15 +1,12 @@
 import { jest } from '@jest/globals';
-import { AvailabilityConfig } from './availability.config';
-import { CityBikesClient } from './citybikes.client';
-import { NetworkMapping } from './entities/network-mapping.entity';
+import { AvailabilityConfig } from '../availability.config';
+import { CityBikesClient } from '../citybikes/citybikes.client';
+import { NetworkMapping } from '../entities/network-mapping.entity';
 import { PollerService } from './poller.service';
 
 const config: AvailabilityConfig = {
   baseUrl: 'https://example.test',
   maxStalenessSeconds: 900,
-  pollIntervalSeconds: 300,
-  pollJitterSeconds: 0,
-  pollSpacingMs: 1,
   requestTimeoutMs: 1000,
   pollingEnabled: false,
   aggregationEnabled: false,
@@ -25,8 +22,10 @@ const mappings: Array<Pick<NetworkMapping, 'cityId' | 'networkId'>> = [
 function makePoller(client: Pick<CityBikesClient, 'getNetwork'>) {
   const saved: Array<{ cityId: number; takenAt: number; freeBikes: number }> =
     [];
-  const mappingRepo = { find: jest.fn().mockResolvedValue(mappings) };
-  const observationRepo = {
+  const networkMappingRepository = {
+    find: jest.fn().mockResolvedValue(mappings),
+  };
+  const observationRepository = {
     create: (x: (typeof saved)[number]) => x,
     save: jest.fn((x: (typeof saved)[number]) => {
       saved.push(x);
@@ -34,12 +33,17 @@ function makePoller(client: Pick<CityBikesClient, 'getNetwork'>) {
     }),
   };
   const resolution = { resolveIfNeeded: jest.fn() };
+  (client as CityBikesClient).getRateLimit = jest.fn(() => ({
+    limit: 100,
+    remaining: 100,
+    resetSeconds: 1,
+  }));
   const poller = new PollerService(
     config,
     client as CityBikesClient,
     resolution as never,
-    mappingRepo as never,
-    observationRepo as never,
+    networkMappingRepository as never,
+    observationRepository as never,
   );
   return { poller, saved };
 }
@@ -91,20 +95,20 @@ describe('PollerService.pollOnce', () => {
     );
     const { poller } = makePoller({ getNetwork });
 
-    // First cycle: net-b fails, backoff = 300 s.
+    // First cycle: net-b fails, backoff is derived from 1 s / 100 remaining.
     await poller.pollOnce(() => 1_000_000_000_000);
     expect(getNetwork.mock.calls.filter(([id]) => id === 'net-b')).toHaveLength(
       1,
     );
 
-    // Second cycle 60 s later: net-b is skipped without a request.
-    await poller.pollOnce(() => 1_000_000_060_000);
+    // Five milliseconds later it is still inside that rate-based backoff.
+    await poller.pollOnce(() => 1_000_000_000_005);
     expect(getNetwork.mock.calls.filter(([id]) => id === 'net-b')).toHaveLength(
       1,
     );
 
     // After the backoff expires it is tried again.
-    await poller.pollOnce(() => 1_000_000_400_000);
+    await poller.pollOnce(() => 1_000_000_000_020);
     expect(getNetwork.mock.calls.filter(([id]) => id === 'net-b')).toHaveLength(
       2,
     );

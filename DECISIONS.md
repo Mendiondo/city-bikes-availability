@@ -1,0 +1,1 @@
+- After reaching city API request limit, I saw in the response headers the API limit remaining, so I changed the previous pollInterval configs created by AI to use the response headers intead.

@@ -3,12 +3,6 @@ export interface AvailabilityConfig {
   baseUrl: string;
   /** Seconds an observation stays valid after it was taken. Default 900. */
   maxStalenessSeconds: number;
-  /** Nominal seconds between poll cycles (random jitter is added). Default 300. */
-  pollIntervalSeconds: number;
-  /** Max random extra delay between poll cycles, seconds. Default 30. */
-  pollJitterSeconds: number;
-  /** Pause between consecutive provider requests inside one cycle, ms. Default 250. */
-  pollSpacingMs: number;
   /** Per-request timeout, ms. Default 10000. */
   requestTimeoutMs: number;
   /** Master switch for the background poller. */
@@ -51,9 +45,6 @@ export function loadConfigFromEnv(
       '',
     ),
     maxStalenessSeconds: positiveInt(env, 'MAX_STALENESS_SECONDS', 900),
-    pollIntervalSeconds: positiveInt(env, 'POLL_INTERVAL_SECONDS', 300),
-    pollJitterSeconds: positiveInt(env, 'POLL_JITTER_SECONDS', 30),
-    pollSpacingMs: positiveInt(env, 'POLL_SPACING_MS', 250),
     requestTimeoutMs: positiveInt(env, 'REQUEST_TIMEOUT_MS', 10_000),
     pollingEnabled: boolEnv(env.POLLING_ENABLED, !testEnv),
     aggregationEnabled: boolEnv(env.AGGREGATION_ENABLED, !testEnv),

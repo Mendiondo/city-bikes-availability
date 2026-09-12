@@ -7,20 +7,18 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AVAILABILITY_CONFIG } from './availability.config';
-import type { AvailabilityConfig } from './availability.config';
-import { CityBikesClient } from './citybikes.client';
-import { NetworkMapping } from './entities/network-mapping.entity';
-import { Observation } from './entities/observation.entity';
-import { ResolutionService } from './resolution.service';
+import { AVAILABILITY_CONFIG } from '../availability.config';
+import type { AvailabilityConfig } from '../availability.config';
+import { CityBikesClient } from '../citybikes/citybikes.client';
+import { NetworkMapping } from '../entities/network-mapping.entity';
+import { Observation } from '../entities/observation.entity';
+import { ResolutionService } from '../resolution.service';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Keeps observations close to live data without hammering the provider:
- * - one request per mapped network per cycle (default cycle: 300 s + up to
- *   30 s of jitter, so 20 cities never collapse into synchronized bursts);
- * - requests are spaced by pollSpacingMs inside a cycle;
+ * - request timing follows the provider's ratelimit-remaining/reset headers;
  * - a failing network backs off exponentially instead of being retried hot;
  * - maxStaleness (900 s) tolerates a couple of missed cycles before coverage
  *   starts to drop.
@@ -40,9 +38,9 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly client: CityBikesClient,
     private readonly resolution: ResolutionService,
     @InjectRepository(NetworkMapping)
-    private readonly mappingRepo: Repository<NetworkMapping>,
+    private readonly networkMappingRepository: Repository<NetworkMapping>,
     @InjectRepository(Observation)
-    private readonly observationRepo: Repository<Observation>,
+    private readonly observationRepository: Repository<Observation>,
   ) {}
 
   onApplicationBootstrap() {
@@ -78,10 +76,7 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
       this.logger.error(`Poll cycle failed: ${messageOf(error)}`);
     } finally {
       this.inFlight = false;
-      const jitterMs = Math.floor(
-        Math.random() * this.config.pollJitterSeconds * 1000,
-      );
-      this.schedule(this.config.pollIntervalSeconds * 1000 + jitterMs);
+      this.schedule(this.nextRateLimitDelayMs());
     }
   }
 
@@ -95,7 +90,7 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
    * @returns number of city observations stored
    */
   async pollOnce(now: () => number = () => Date.now()): Promise<number> {
-    const mappings = await this.mappingRepo.find({
+    const mappings = await this.networkMappingRepository.find({
       order: { cityId: 'ASC', networkId: 'ASC' },
     });
     const byCity = new Map<number, NetworkMapping[]>();
@@ -113,7 +108,7 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
       let lastReceiptSeconds = 0;
 
       for (const mapping of cityNetworks) {
-        if (!firstRequest) await sleep(this.config.pollSpacingMs);
+        if (!firstRequest) await sleep(this.nextRateLimitDelayMs());
         firstRequest = false;
 
         const backedOffUntil = this.backoffUntil.get(mapping.networkId);
@@ -134,7 +129,7 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
             (this.consecutiveFailures.get(mapping.networkId) ?? 0) + 1;
           this.consecutiveFailures.set(mapping.networkId, failures);
           const backoffMs = Math.min(
-            this.config.pollIntervalSeconds * 1000 * 2 ** (failures - 1),
+            this.nextRateLimitDelayMs() * 2 ** (failures - 1),
             3_600_000,
           );
           this.backoffUntil.set(mapping.networkId, now() + backoffMs);
@@ -146,8 +141,8 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
       }
 
       if (fetched > 0 && fetched === cityNetworks.length) {
-        await this.observationRepo.save(
-          this.observationRepo.create({
+        await this.observationRepository.save(
+          this.observationRepository.create({
             cityId,
             takenAt: lastReceiptSeconds,
             freeBikes: totalFreeBikes,
@@ -162,6 +157,17 @@ export class PollerService implements OnApplicationBootstrap, OnModuleDestroy {
       }
     }
     return stored;
+  }
+
+  private nextRateLimitDelayMs(): number {
+    const { limit, remaining, resetSeconds } = this.client.getRateLimit();
+    const resetMs = Math.max(0, resetSeconds * 1000);
+    if (remaining <= 0) return Math.max(1000, resetMs);
+
+    // Spread the usable request budget across the reset window. Floor the
+    // interval so fractional milliseconds do not accumulate as throttling.
+    const usableRemaining = Math.min(remaining, Math.max(1, limit));
+    return Math.max(1, Math.floor(resetMs / usableRemaining));
   }
 }
 

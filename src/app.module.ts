@@ -9,6 +9,7 @@ import { NetworkMapping } from './availability/entities/network-mapping.entity';
 import { Observation } from './availability/entities/observation.entity';
 import { HourlyStat } from './availability/entities/hourly-stat.entity';
 import { AggregationState } from './availability/entities/aggregation-state.entity';
+import { TraceModule } from './trace/trace.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AggregationState } from './availability/entities/aggregation-state.enti
     }),
     CityModule,
     AvailabilityModule,
+    TraceModule,
   ],
   controllers: [AppController],
   providers: [AppService],

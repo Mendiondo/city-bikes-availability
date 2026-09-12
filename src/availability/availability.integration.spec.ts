@@ -5,7 +5,7 @@ import { Repository } from 'typeorm';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { City } from '../city/entities/city.entity';
 import { AVAILABILITY_CONFIG, AvailabilityConfig } from './availability.config';
-import { CityBikesClient } from './citybikes.client';
+import { CityBikesClient } from './citybikes/citybikes.client';
 import { AggregationState } from './entities/aggregation-state.entity';
 import { HourlyStat } from './entities/hourly-stat.entity';
 import { NetworkMapping } from './entities/network-mapping.entity';
@@ -16,9 +16,6 @@ import { StatsService } from './stats.service';
 const config: AvailabilityConfig = {
   baseUrl: 'https://example.test',
   maxStalenessSeconds: 900,
-  pollIntervalSeconds: 300,
-  pollJitterSeconds: 0,
-  pollSpacingMs: 1,
   requestTimeoutMs: 1000,
   pollingEnabled: false,
   aggregationEnabled: false,
@@ -106,9 +103,9 @@ describe('Availability integration (in-memory sqlite)', () => {
   let resolution: ResolutionService;
   let stats: StatsService;
   let cityRepo: Repository<City>;
-  let observationRepo: Repository<Observation>;
+  let observationRepository: Repository<Observation>;
   let statRepo: Repository<HourlyStat>;
-  let mappingRepo: Repository<NetworkMapping>;
+  let networkMappingRepository: Repository<NetworkMapping>;
 
   beforeAll(async () => {
     module = await Test.createTestingModule({
@@ -149,9 +146,9 @@ describe('Availability integration (in-memory sqlite)', () => {
     resolution = module.get(ResolutionService);
     stats = module.get(StatsService);
     cityRepo = module.get(getRepositoryToken(City));
-    observationRepo = module.get(getRepositoryToken(Observation));
+    observationRepository = module.get(getRepositoryToken(Observation));
     statRepo = module.get(getRepositoryToken(HourlyStat));
-    mappingRepo = module.get(getRepositoryToken(NetworkMapping));
+    networkMappingRepository = module.get(getRepositoryToken(NetworkMapping));
 
     await cityRepo.save(CITIES.map((c) => cityRepo.create(c)));
   });
@@ -166,7 +163,7 @@ describe('Availability integration (in-memory sqlite)', () => {
     expect(result.unresolvedCities).toEqual([]);
 
     const byCity = new Map<number, string[]>();
-    for (const m of await mappingRepo.find()) {
+    for (const m of await networkMappingRepository.find()) {
       byCity.set(m.cityId, [...(byCity.get(m.cityId) ?? []), m.networkId]);
     }
     const barcelona = await cityRepo.findOneByOrFail({ name: 'Barcelona' });
@@ -196,7 +193,7 @@ describe('Availability integration (in-memory sqlite)', () => {
     );
     // Near-miss decoys are excluded.
     expect(byCity.get(berlin.id)).not.toContain('nextbike-campus-berlin-buch');
-    const mappedIds = (await mappingRepo.find()).map((m) => m.networkId);
+    const mappedIds = (await networkMappingRepository.find()).map((m) => m.networkId);
     expect(mappedIds).not.toContain('bicinrivas');
     expect(mappedIds).not.toContain('beryl-dorchester-weymouth-portland');
   });
@@ -205,7 +202,7 @@ describe('Availability integration (in-memory sqlite)', () => {
     const city = await cityRepo.findOneByOrFail({ name: 'Barcelona' });
     const hourStart = Date.UTC(2026, 0, 15, 12, 0, 0) / 1000;
     const at = (h: number, m: number) => Date.UTC(2026, 0, 15, h, m, 0) / 1000;
-    await observationRepo.save([
+    await observationRepository.save([
       { cityId: city.id, takenAt: at(11, 52), freeBikes: 100 },
       { cityId: city.id, takenAt: at(12, 10), freeBikes: 130 },
       { cityId: city.id, takenAt: at(12, 15), freeBikes: 130 },

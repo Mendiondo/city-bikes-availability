@@ -13,7 +13,7 @@ import type { AvailabilityConfig } from './availability.config';
 import { AggregationState } from './entities/aggregation-state.entity';
 import { HourlyStat } from './entities/hourly-stat.entity';
 import { Observation } from './entities/observation.entity';
-import { computeHourlyStats, HourlyStats } from './hourly-stats';
+import { computeHourlyStats, HourlyStats } from './hourly/hourly-stats';
 
 /**
  * Rolls raw observations up into stored per-city hourly stats.
@@ -34,7 +34,7 @@ export class StatsService implements OnApplicationBootstrap, OnModuleDestroy {
     @InjectRepository(City)
     private readonly cityRepo: Repository<City>,
     @InjectRepository(Observation)
-    private readonly observationRepo: Repository<Observation>,
+    private readonly observationRepository: Repository<Observation>,
     @InjectRepository(HourlyStat)
     private readonly statRepo: Repository<HourlyStat>,
     @InjectRepository(AggregationState)
@@ -70,7 +70,7 @@ export class StatsService implements OnApplicationBootstrap, OnModuleDestroy {
     let stored = 0;
 
     for (const city of cities) {
-      const first = await this.observationRepo.findOne({
+      const first = await this.observationRepository.findOne({
         where: { cityId: city.id },
         order: { takenAt: 'ASC' },
       });
@@ -108,7 +108,7 @@ export class StatsService implements OnApplicationBootstrap, OnModuleDestroy {
     hourStart: number,
     nowSeconds = Math.floor(Date.now() / 1000),
   ): Promise<HourlyStats | null> {
-    const observations = await this.observationRepo.find({
+    const observations = await this.observationRepository.find({
       where: {
         cityId,
         takenAt: Between(
@@ -160,7 +160,7 @@ export class StatsService implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   latestObservation(cityId: number): Promise<Observation | null> {
-    return this.observationRepo.findOne({
+    return this.observationRepository.findOne({
       where: { cityId },
       order: { takenAt: 'DESC' },
     });

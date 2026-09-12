@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { City } from '../city/entities/city.entity';
-import { CityBikesClient } from './citybikes.client';
+import { CityBikesClient } from './citybikes/citybikes.client';
 import { NetworkMapping } from './entities/network-mapping.entity';
 import { providerMatchesCity } from './normalize';
 
@@ -26,14 +26,14 @@ export class ResolutionService {
   constructor(
     private readonly client: CityBikesClient,
     @InjectRepository(NetworkMapping)
-    private readonly mappingRepo: Repository<NetworkMapping>,
+    private readonly networkMappingRepository: Repository<NetworkMapping>,
     @InjectRepository(City)
     private readonly cityRepo: Repository<City>,
   ) {}
 
   /** Resolve only when no mapping exists yet (used on boot). */
   async resolveIfNeeded(): Promise<ResolutionResult | null> {
-    if ((await this.mappingRepo.count()) > 0) return null;
+    if ((await this.networkMappingRepository.count()) > 0) return null;
     return this.resolve();
   }
 
@@ -79,7 +79,7 @@ export class ResolutionService {
       for (const network of matches) {
         assignedNetworkIds.add(network.id);
         rows.push(
-          this.mappingRepo.create({
+          this.networkMappingRepository.create({
             networkId: network.id,
             networkName: network.name ?? '',
             providerCity: network.location.city ?? '',
@@ -96,7 +96,7 @@ export class ResolutionService {
       );
     }
 
-    await this.mappingRepo.manager.transaction(async (em) => {
+    await this.networkMappingRepository.manager.transaction(async (em) => {
       await em.clear(NetworkMapping);
       await em.save(rows);
     });
@@ -109,7 +109,7 @@ export class ResolutionService {
   }
 
   getMappings(): Promise<NetworkMapping[]> {
-    return this.mappingRepo.find({
+    return this.networkMappingRepository.find({
       order: { cityId: 'ASC', networkId: 'ASC' },
     });
   }

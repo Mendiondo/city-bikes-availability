@@ -3,12 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { City } from '../city/entities/city.entity';
 import { AVAILABILITY_CONFIG, loadConfigFromEnv } from './availability.config';
 import { AvailabilityController } from './availability.controller';
-import { CityBikesClient } from './citybikes.client';
+import { CityBikesClient } from './citybikes/citybikes.client';
 import { AggregationState } from './entities/aggregation-state.entity';
 import { HourlyStat } from './entities/hourly-stat.entity';
 import { NetworkMapping } from './entities/network-mapping.entity';
 import { Observation } from './entities/observation.entity';
-import { PollerService } from './poller.service';
+import { PollerService } from './poller/poller.service';
 import { ResolutionService } from './resolution.service';
 import { StatsService } from './stats.service';
 

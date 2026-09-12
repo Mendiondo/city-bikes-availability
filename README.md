@@ -46,7 +46,7 @@ hourly_stat table (cityId, hourStart, avgFreeBikes, coveredSeconds,
                    coverage, partial)
 ```
 
-All provider responses are parsed with Zod ([citybikes.schemas.ts](src/availability/citybikes.schemas.ts))
+All provider responses are parsed with Zod ([citybikes.schemas.ts](src/availability/citybikes/citybikes.schemas.ts))
 before use: untrusted input arrives as `unknown` and is never trusted as a
 typed object. Invalid payloads, non-2xx responses and network failures are
 treated the same way: the cycle logs a warning, the affected network backs
@@ -108,7 +108,7 @@ replays a snapshot of the real network list and asserts the mapping for all
 
 ## Hourly aggregation (binding definitions)
 
-Implemented as a pure sweep in [hourly-stats.ts](src/availability/hourly-stats.ts):
+Implemented as a pure sweep in [hourly-stats.ts](src/availability/hourly/hourly-stats.ts):
 
 - **Observation**: measurement of a city's total free bikes at instant `t`.
 - **Validity**: covers `[t, t + maxStaleness)`, `maxStaleness` defaults to
@@ -126,47 +126,43 @@ Implemented as a pure sweep in [hourly-stats.ts](src/availability/hourly-stats.t
 
 ### Golden test vector
 
-Shipped as a test in [hourly-stats.spec.ts](src/availability/hourly-stats.spec.ts)
+Shipped as a test in [hourly-stats.spec.ts](src/availability/hourly/hourly-stats.spec.ts)
 and again end-to-end through the database in
 [availability.integration.spec.ts](src/availability/availability.integration.spec.ts).
 With `maxStaleness = 900`, hour 12:00:00Z–13:00:00Z, observations
 `(11:52:00, 100)`, `(12:10:00, 130)`, `(12:15:00, 130)`, `(12:50:00, 70)`:
 
-| Field             | Expected |
-| ----------------- | -------- |
-| covered seconds   | 2220     |
-| average free bikes| 108.11   |
-| coverage          | 0.6167   |
-| partial           | true     |
+| Field              | Expected |
+| ------------------ | -------- |
+| covered seconds    | 2220     |
+| average free bikes | 108.11   |
+| coverage           | 0.6167   |
+| partial            | true     |
 
 (The naive readings 110.00, 107.50 and 103.57 are wrong; the test pins the
 binding definition.)
 
 ## Keeping close to live data without hammering the provider
 
-- Poll cycle: one request per mapped network every
-  `POLL_INTERVAL_SECONDS` (default 300 s) plus up to
-  `POLL_JITTER_SECONDS` (default 30 s) of random jitter so cycles do not
-  synchronize into bursts.
-- Requests inside a cycle are spaced by `POLL_SPACING_MS` (default 250 ms).
-- A failing network backs off exponentially (interval x 2^failures, capped
-  at 1 h) instead of being retried hot.
+- Poll timing follows the provider response headers: `ratelimit-limit`,
+  `ratelimit-remaining`, and `ratelimit-reset`. Requests are delayed by the
+  reset window divided by the remaining request budget; when no requests
+  remain, polling waits until reset.
+- A failing network applies exponential backoff to that rate-derived delay
+  instead of being retried hot.
 - With 900 s staleness, a 300 s cycle keeps coverage at 1.0 even when a full
   cycle is lost; two lost cycles still leave ~1/3 coverage and are flagged
   partial instead of corrupting averages.
 
 ## Configuration
 
-| Env var                  | Default                      | Meaning                          |
-| ------------------------ | ---------------------------- | -------------------------------- |
-| `CITYBIKES_BASE_URL`     | `https://api.citybik.es/v2`  | provider base URL                |
-| `MAX_STALENESS_SECONDS`  | `900`                        | observation validity window      |
-| `POLL_INTERVAL_SECONDS`  | `300`                        | nominal time between poll cycles |
-| `POLL_JITTER_SECONDS`    | `30`                         | max random extra cycle delay     |
-| `POLL_SPACING_MS`        | `250`                        | delay between requests in a cycle|
-| `REQUEST_TIMEOUT_MS`     | `10000`                      | per-request timeout              |
-| `POLLING_ENABLED`        | `true` (`false` under tests) | background poller switch         |
-| `AGGREGATION_ENABLED`    | `true` (`false` under tests) | hourly aggregation loop switch   |
+| Env var                 | Default                      | Meaning                        |
+| ----------------------- | ---------------------------- | ------------------------------ |
+| `CITYBIKES_BASE_URL`    | `https://api.citybik.es/v2`  | provider base URL              |
+| `MAX_STALENESS_SECONDS` | `900`                        | observation validity window    |
+| `REQUEST_TIMEOUT_MS`    | `10000`                      | per-request timeout            |
+| `POLLING_ENABLED`       | `true` (`false` under tests) | background poller switch       |
+| `AGGREGATION_ENABLED`   | `true` (`false` under tests) | hourly aggregation loop switch |
 
 ## HTTP endpoints
 

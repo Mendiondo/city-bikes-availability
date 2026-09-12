@@ -1,13 +1,19 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { z, ZodError } from 'zod';
-import { AVAILABILITY_CONFIG } from './availability.config';
-import type { AvailabilityConfig } from './availability.config';
+import { AVAILABILITY_CONFIG } from '../availability.config';
+import type { AvailabilityConfig } from '../availability.config';
 import {
   NetworkDetail,
   networkDetailResponseSchema,
   NetworkSummary,
   networkListResponseSchema,
 } from './citybikes.schemas';
+
+export interface RateLimitInfo {
+  limit: number;
+  remaining: number;
+  resetSeconds: number;
+}
 
 /**
  * Thin HTTP client for the CityBikes API. Every response is treated as
@@ -16,12 +22,19 @@ import {
  */
 @Injectable()
 export class CityBikesClient {
+  private rateLimit: RateLimitInfo = {
+    limit: 1,
+    remaining: 0,
+    resetSeconds: 1,
+  };
+
   constructor(
     @Inject(AVAILABILITY_CONFIG)
     private readonly config: AvailabilityConfig,
   ) {}
 
   listNetworks(): Promise<NetworkSummary[]> {
+    console.log('List Networks...');
     return this.getValidated('/networks', networkListResponseSchema).then(
       (body) => body.networks,
     );
@@ -32,6 +45,10 @@ export class CityBikesClient {
       `/networks/${encodeURIComponent(networkId)}`,
       networkDetailResponseSchema,
     ).then((body) => body.network);
+  }
+
+  getRateLimit(): RateLimitInfo {
+    return { ...this.rateLimit };
   }
 
   private async getValidated<S extends z.ZodType>(
@@ -45,10 +62,12 @@ export class CityBikesClient {
         headers: { accept: 'application/json' },
         signal: AbortSignal.timeout(this.config.requestTimeoutMs),
       });
+      this.rateLimit = rateLimitFrom(response.headers ?? new Headers());
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       body = await response.json();
+      console.log(`${this.config.baseUrl}${path}`, new Date().toISOString());
     } catch (error) {
       throw new Error(
         `CityBikes request failed for ${url}: ${describe(error)}`,
@@ -71,6 +90,23 @@ export class CityBikesClient {
       throw error;
     }
   }
+}
+
+function rateLimitFrom(headers: Headers): RateLimitInfo {
+  return {
+    limit: headerNumber(headers, 'ratelimit-limit', 1),
+    remaining: headerNumber(headers, 'ratelimit-remaining', 0),
+    resetSeconds: headerNumber(headers, 'ratelimit-reset', 1),
+  };
+}
+
+function headerNumber(
+  headers: Headers,
+  name: string,
+  fallback: number,
+): number {
+  const value = Number(headers.get(name));
+  return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function describe(error: unknown): string {
